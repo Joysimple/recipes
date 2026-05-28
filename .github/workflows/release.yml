@@ -1,0 +1,48 @@
+name: Build and Release Recipes PDF
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Lint and Format check
+        run: |
+          ruff format --check generate_pdf.py
+          ruff check generate_pdf.py
+
+      - name: Install Arial fonts
+        run: |
+          sudo apt-get update
+          echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | sudo debconf-set-selections
+          sudo apt-get install -y ttf-mscorefonts-installer
+
+      - name: Generate PDF
+        run: python generate_pdf.py
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Recipes.pdf
+          body: "Automatic build of the Recipe Cookbook for version ${{ github.ref_name }}."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -9,10 +9,13 @@ if [ ! -d "venv" ]; then
     exit 1
 fi
 
-echo "Formatting code..."
+echo "Formatting Python code..."
 $VENV_BIN/ruff format generate_pdf.py
 
-echo "Linting and fixing code..."
+echo "Linting and fixing Python code..."
 $VENV_BIN/ruff check --fix generate_pdf.py
 
-echo "Success! Code is PEP 8 compliant."
+echo "Formatting Markdown recipes..."
+$VENV_BIN/mdformat --number recipes/*.md
+
+echo "Success! Code and recipes are PEP 8 and Markdown compliant."

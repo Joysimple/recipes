@@ -29,7 +29,7 @@ jobs:
         run: |
           ruff format --check generate_pdf.py
           ruff check generate_pdf.py
-          mdformat --check recipes/*.md
+          mdformat --check --number recipes/*.md
 
       - name: Install Arial fonts
         run: |

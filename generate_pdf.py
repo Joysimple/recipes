@@ -63,6 +63,9 @@ class RecipePDF(FPDF):
         if not text.strip():
             return
 
+        # Clean up escaped markdown characters (e.g., \* becomes *)
+        text = text.replace("\\*", "*")
+
         # Save original margins
         prev_l_margin = self.l_margin
         prev_r_margin = self.r_margin
@@ -229,6 +232,10 @@ class RecipePDF(FPDF):
         """Helper to write a single line of text with **bold** and *italic* support using write()"""
         if not text:
             return
+
+        # Clean up escaped markdown characters
+        text = text.replace("\\*", "*")
+
         parts = re.split(r"(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*)", text)
         for part in parts:
             if not part:
@@ -276,6 +283,10 @@ class RecipePDF(FPDF):
             self.add_page()
 
         curr_y = self.get_y()
+
+        # Clean up escaped characters
+        name = name.replace("\\*", "*")
+        quantity = quantity.replace("\\*", "*")
 
         # Robust footnote detection: starts with one or more asterisks
         stripped_name = name.strip()

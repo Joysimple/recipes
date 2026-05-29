@@ -55,16 +55,15 @@ class RecipePDF(FPDF):
         self.set_text_color(0, 0, 0)
         self.set_draw_color(0, 0, 0)
 
-    def write_styled(self, text, size=11, bullet=True, indent=0):
+    def write_styled(self, text, size=11, bullet=True, indent=0, base_style=""):
         """
-        High-precision justified text renderer with manual markdown support.
-        This handles **bold**, *italic*, and ***bold-italic*** while ensuring
-        perfect word-wrapping (words are NEVER split) and 'justified' alignment.
+        Custom justified text renderer. Handles **bold** and *italic* manually
+        to prevent word-splitting and ensure italics always work correctly.
         """
         if not text.strip():
             return
 
-        # Save original margins to restore later
+        # Save original margins
         prev_l_margin = self.l_margin
         prev_r_margin = self.r_margin
 
@@ -72,7 +71,7 @@ class RecipePDF(FPDF):
         self.set_left_margin(new_l_margin)
         self.set_x(new_l_margin)
 
-        # 1. Parse text into fragments
+        # 1. Parse text into unbreakable 'word' tokens
         parts = re.split(r"(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*)", text)
         fragments = []
         for part in parts:
@@ -83,13 +82,14 @@ class RecipePDF(FPDF):
             elif part.startswith("**") and part.endswith("**"):
                 style, content = "B", part[2:-2]
             elif part.startswith("*") and part.endswith("*"):
+                # Always non-bold italic for * markers
                 style, content = "I", part[1:-1]
             else:
-                style, content = "", part
+                style, content = base_style, part
             fragments.append({"text": content, "style": style})
 
-        # 2. Group fragments into "Items" (Words or Spaces)
-        items = []
+        # Group fragments into Word objects (no spaces allowed inside a word)
+        words = []
         current_word_fragments = []
 
         for frag in fragments:
@@ -99,111 +99,106 @@ class RecipePDF(FPDF):
                     continue
                 if sp.isspace():
                     if current_word_fragments:
-                        items.append(
-                            {"type": "word", "fragments": current_word_fragments}
-                        )
+                        words.append({"fragments": current_word_fragments})
                         current_word_fragments = []
-                    items.append({"type": "space", "text": sp})
                 else:
                     current_word_fragments.append({"text": sp, "style": frag["style"]})
 
         if current_word_fragments:
-            items.append({"type": "word", "fragments": current_word_fragments})
+            words.append({"fragments": current_word_fragments})
 
-        # 3. Handle bullet point
+        # 2. Add bullet if needed
         if bullet:
             self.set_font("CustomFont", "B", size)
-            bullet_str = " • "
-            self.write(7, bullet_str)
+            self.write(7, " • ")
 
-        # 4. Build lines
-        # We add a tiny buffer (0.1mm) to prevent floating point wrap triggers
-        available_w = self.epw - (self.get_x() - self.l_margin) - 0.1
-        current_line_items = []
-        current_w = 0
-        lines_to_render = []
+        # 3. Assemble lines manually for justification
+        lines = []
+        current_line = []
+        current_line_w = 0
+        # Account for the bullet if it was drawn
+        start_x_offset = (self.get_x() - self.l_margin) if bullet else 0
+        available_w = self.epw - start_x_offset - 0.1
 
-        for item in items:
-            item_w = 0
-            if item["type"] == "word":
-                for frag in item["fragments"]:
-                    self.set_font("CustomFont", frag["style"], size)
-                    item_w += self.get_string_width(frag["text"])
-            else:
-                self.set_font("CustomFont", "", size)
-                item_w = self.get_string_width(item["text"])
+        for word in words:
+            # Calculate word width
+            word_w = 0
+            for f in word["fragments"]:
+                self.set_font("CustomFont", f["style"], size)
+                word_w += self.get_string_width(f["text"])
+            word["width"] = word_w
 
-            if (
-                item["type"] == "word"
-                and current_w + item_w > available_w
-                and current_line_items
-            ):
-                lines_to_render.append(
+            # Check if word fits
+            # We assume a space between words (approx width of a space in regular font)
+            self.set_font("CustomFont", base_style, size)
+            space_w = self.get_string_width(" ")
+
+            if current_line and (current_line_w + space_w + word_w > available_w):
+                # Line full, save it
+                lines.append(
                     {
-                        "items": current_line_items,
-                        "width": current_w,
+                        "words": current_line,
+                        "width": current_line_w,
                         "available": available_w,
                     }
                 )
-                current_line_items = []
-                current_w = 0
+                current_line = []
+                current_line_w = 0
                 available_w = self.epw - 0.1
 
-            if not current_line_items and item["type"] == "space":
-                continue
+            current_line.append(word)
+            if current_line_w > 0:
+                current_line_w += space_w
+            current_line_w += word_w
 
-            item["width"] = item_w
-            current_line_items.append(item)
-            current_w += item_w
-
-        if current_line_items:
-            lines_to_render.append(
+        if current_line:
+            lines.append(
                 {
-                    "items": current_line_items,
-                    "width": current_w,
+                    "words": current_line,
+                    "width": current_line_w,
                     "available": available_w,
                     "last": True,
                 }
             )
 
-        # 5. Render the lines with justification
-        # CRITICAL: Disable FPDF's internal wrap during manual rendering
+        # 4. Render lines
+        # Disable auto-wrap during manual rendering
         self.set_right_margin(0)
-
-        for i, line in enumerate(lines_to_render):
+        for i, line in enumerate(lines):
             if i > 0:
                 self.set_x(self.l_margin)
 
             is_last = line.get("last", False)
-            words_in_line = [it for it in line["items"] if it["type"] == "word"]
-            num_gaps = len(words_in_line) - 1
+            num_words = len(line["words"])
+            num_gaps = num_words - 1
 
-            extra_gap_space = 0
+            # Default space width
+            self.set_font("CustomFont", base_style, size)
+            base_space_w = self.get_string_width(" ")
+
+            # Calculate extra space for justification
+            extra_per_gap = 0
             if not is_last and num_gaps > 0:
-                total_words_w = sum(it["width"] for it in words_in_line)
-                extra_gap_space = (line["available"] - total_words_w) / num_gaps
+                # available space / gaps
+                extra_per_gap = (line["available"] - line["width"]) / num_gaps
 
-            for item in line["items"]:
-                if item["type"] == "word":
-                    for frag in item["fragments"]:
-                        self.set_font("CustomFont", frag["style"], size)
-                        self.write(7, frag["text"])
+            for j, word in enumerate(line["words"]):
+                # Render fragments of the word
+                for f in word["fragments"]:
+                    self.set_font("CustomFont", f["style"], size)
+                    self.write(7, f["text"])
 
-                    if not is_last and num_gaps > 0:
-                        word_idx = words_in_line.index(item)
-                        if word_idx < num_gaps:
-                            self.set_x(self.get_x() + extra_gap_space)
-                else:
-                    if is_last:
-                        self.set_font("CustomFont", "", size)
-                        self.write(7, item["text"])
+                # Render gap
+                if j < num_gaps:
+                    gap_w = base_space_w + extra_per_gap
+                    self.set_x(self.get_x() + gap_w)
 
             self.ln(7)
 
-        # Restore original margins
+        # Restore margins
         self.set_right_margin(prev_r_margin)
         self.set_left_margin(prev_l_margin)
-        self.ln(2)  # Small gap between items
+        self.ln(2)
 
     def draw_section_header(self, text):
         self.ln(6)
@@ -234,8 +229,6 @@ class RecipePDF(FPDF):
         """Helper to write a single line of text with **bold** and *italic* support using write()"""
         if not text:
             return
-        # Capture ***bold-italic***, **bold**, and *italic*
-        # Using a more robust regex that handles markers correctly
         parts = re.split(r"(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*)", text)
         for part in parts:
             if not part:
@@ -245,13 +238,14 @@ class RecipePDF(FPDF):
                 self.write(8, part[3:-3])
             elif part.startswith("**") and part.endswith("**"):
                 self.set_font("CustomFont", "B", size)
-                self.write(7, part[2:-2])
+                self.write(8, part[2:-2])
             elif part.startswith("*") and part.endswith("*"):
+                # Always non-bold italic for * markers
                 self.set_font("CustomFont", "I", size)
-                self.write(7, part[1:-1])
+                self.write(8, part[1:-1])
             else:
                 self.set_font("CustomFont", default_style, size)
-                self.write(7, part)
+                self.write(8, part)
 
     def get_styled_width(self, text, size=11, default_style=""):
         """Calculate the total width of a styled string without rendering it"""
@@ -269,6 +263,7 @@ class RecipePDF(FPDF):
                 self.set_font("CustomFont", "B", size)
                 total_w += self.get_string_width(part[2:-2])
             elif part.startswith("*") and part.endswith("*"):
+                # Always non-bold italic for * markers
                 self.set_font("CustomFont", "I", size)
                 total_w += self.get_string_width(part[1:-1])
             else:
@@ -282,12 +277,28 @@ class RecipePDF(FPDF):
 
         curr_y = self.get_y()
 
-        # Detect footnote: starts with * and has no quantity
-        if not quantity.strip() and name.strip().startswith("*"):
+        # Robust footnote detection: starts with one or more asterisks
+        stripped_name = name.strip()
+        is_footnote = False
+        if stripped_name.startswith("*"):
+            if not quantity.strip():
+                is_footnote = True
+            elif re.match(r"^\*+\s+", stripped_name):
+                # e.g. "* Option A" or "** Option B"
+                is_footnote = True
+
+        if is_footnote:
             self.set_x(self.l_margin)
-            # Render as italics, non-bold, slightly smaller
-            self.write_inline_styled(name.strip(), size=10, default_style="I")
-            self.ln(6)
+            # Combine name and quantity for footnotes that were split by a colon
+            full_text = (
+                f"{name.strip()}: {quantity.strip()}"
+                if quantity.strip()
+                else name.strip()
+            )
+            # Render as light italic, justified, no bullet
+            self.write_styled(
+                full_text, size=10, bullet=False, indent=0, base_style="I"
+            )
             return
 
         # Calculate widths for the dotted line
@@ -299,11 +310,7 @@ class RecipePDF(FPDF):
         self.write_inline_styled(name, size=11, default_style="B")
 
         # 2. Render the quantity (right side, bold by default)
-        # Calculate qty width carefully
         qty_width = self.get_styled_width(quantity, size=11, default_style="B")
-
-        # Set cursor to the right, but ensure we don't wrap by temporarily
-        # allowing text to overflow the right margin
         prev_r_margin = self.r_margin
         self.set_right_margin(0)
         self.set_x(self.w - prev_r_margin - qty_width)
@@ -393,12 +400,14 @@ def parse_and_draw_recipe(pdf, content, recipe_num):
     pdf.set_y(15)
     pdf.set_font("CustomFont", "B", 22)
     pdf.set_text_color(0, 0, 0)
-    pdf.cell(0, 12, title.upper(), align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    # Support multi-line titles
+    pdf.multi_cell(0, 10, title.upper(), align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     if subtitle:
         pdf.ln(2)
         pdf.set_font("CustomFont", "", 10)
-        pdf.cell(0, 6, subtitle, align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        # Support multi-line subtitles
+        pdf.multi_cell(0, 5, subtitle, align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     pdf.ln(4)
     pdf.set_draw_color(0, 0, 0)
@@ -440,7 +449,6 @@ def parse_and_draw_recipe(pdf, content, recipe_num):
                 # Handle manual page breaks (invisible in most renderers)
                 if "<!-- PAGE_BREAK -->" in line:
                     pdf.add_page()
-                    pdf.set_y(10)
                     continue
 
                 # Handle subsections

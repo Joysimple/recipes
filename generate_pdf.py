@@ -83,7 +83,8 @@ class RecipePDF(FPDF):
             if part.startswith("***") and part.endswith("***"):
                 style, content = "BI", part[3:-3]
             elif part.startswith("**") and part.endswith("**"):
-                style, content = "B", part[2:-2]
+                style = "BI" if "I" in base_style else "B"
+                content = part[2:-2]
             elif part.startswith("*") and part.endswith("*"):
                 # Always non-bold italic for * markers
                 style, content = "I", part[1:-1]
@@ -244,7 +245,8 @@ class RecipePDF(FPDF):
                 self.set_font("CustomFont", "BI", size)
                 self.write(8, part[3:-3])
             elif part.startswith("**") and part.endswith("**"):
-                self.set_font("CustomFont", "B", size)
+                style = "BI" if "I" in default_style else "B"
+                self.set_font("CustomFont", style, size)
                 self.write(8, part[2:-2])
             elif part.startswith("*") and part.endswith("*"):
                 # Always non-bold italic for * markers
@@ -258,6 +260,9 @@ class RecipePDF(FPDF):
         """Calculate the total width of a styled string without rendering it"""
         if not text:
             return 0
+
+        text = text.replace("\\*", "*")
+
         total_w = 0
         parts = re.split(r"(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*)", text)
         for part in parts:
@@ -267,7 +272,8 @@ class RecipePDF(FPDF):
                 self.set_font("CustomFont", "BI", size)
                 total_w += self.get_string_width(part[3:-3])
             elif part.startswith("**") and part.endswith("**"):
-                self.set_font("CustomFont", "B", size)
+                style = "BI" if "I" in default_style else "B"
+                self.set_font("CustomFont", style, size)
                 total_w += self.get_string_width(part[2:-2])
             elif part.startswith("*") and part.endswith("*"):
                 # Always non-bold italic for * markers
@@ -313,7 +319,7 @@ class RecipePDF(FPDF):
             return
 
         # Calculate widths for the dotted line
-        clean_name = re.sub(r"\*\*\*|\*\*|\*", "", name).strip()
+        clean_name = re.sub(r"\*\*\*|\*\*|\*", "", name).replace("\\", "").strip()
         name_width = self.get_string_width(clean_name) + 3
 
         # 1. Render the name (left side, bold by default)
@@ -369,29 +375,34 @@ def parse_recipe_title(content):
     return title_match.group(1).strip() if title_match else "Untitled Recipe"
 
 
-def draw_toc(pdf, recipe_titles):
+def draw_toc(pdf, toc_data):
+    """
+    Render the Table of Contents.
+    toc_data is a list of (recipe_title, start_page_number)
+    """
     pdf.add_page()
     pdf.set_y(40)
     pdf.set_font("CustomFont", "B", 24)
-    pdf.cell(0, 20, "TABLE OF CONTENTS", align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.cell(0, 20, "ОГЛАВЛЕНИЕ", align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(10)
 
     pdf.set_font("CustomFont", "", 14)
-    for i, title in enumerate(recipe_titles, 1):
-        recipe_page = i + 1
+    for i, (title, page_num) in enumerate(toc_data, 1):
         curr_y = pdf.get_y()
-        clean_title = title.replace("**", "").strip()
-        pdf.cell(0, 10, f"{i}. {clean_title}")
-        pdf.set_x(-pdf.r_margin - 15)
-        pdf.cell(
-            20, 10, str(recipe_page), align="R", new_x=XPos.LMARGIN, new_y=YPos.NEXT
+        clean_title = (
+            title.replace("**", "").replace("\\*", "*").replace("\\", "").strip()
         )
+        display_text = f"{i}. {clean_title}"
+
+        pdf.cell(0, 10, display_text)
+        pdf.set_x(-pdf.r_margin - 15)
+        pdf.cell(15, 10, str(page_num), align="R", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
         pdf.set_draw_color(180, 180, 180)
         pdf.set_dash_pattern(dash=0.5, gap=1.5)
         line_y = curr_y + 7
-        title_width = pdf.get_string_width(f"{i}. {clean_title}") + 10
-        pdf.line(pdf.l_margin + title_width, line_y, pdf.w - pdf.r_margin - 25, line_y)
+        title_width = pdf.get_string_width(display_text) + 10
+        pdf.line(pdf.l_margin + title_width, line_y, pdf.w - pdf.r_margin - 20, line_y)
         pdf.set_dash_pattern()
 
 
@@ -408,6 +419,8 @@ def parse_and_draw_recipe(pdf, content, recipe_num):
             break
 
     pdf.add_page()
+    recipe_start_page = pdf.page_no()
+
     pdf.set_y(15)
     pdf.set_font("CustomFont", "B", 22)
     pdf.set_text_color(0, 0, 0)
@@ -479,12 +492,24 @@ def parse_and_draw_recipe(pdf, content, recipe_num):
                     clean_line, size=11, bullet=True, indent=(indent_size // 2) * 3
                 )
 
+    return recipe_start_page
 
-def main():
-    pdf = RecipePDF()
+
+def generate_book(folder_path):
+    book_name = os.path.basename(folder_path)
+
     md_files = sorted(
-        [f for f in glob.glob("recipes/*.md") if os.path.basename(f)[0].isdigit()]
+        [
+            f
+            for f in glob.glob(os.path.join(folder_path, "*.md"))
+            if os.path.basename(f)[0].isdigit()
+        ]
     )
+
+    if not md_files:
+        print(f"No recipes found in {folder_path}")
+        return
+
     recipe_data = []
     for md_file in md_files:
         with open(md_file, "r", encoding="utf-8") as f:
@@ -492,20 +517,58 @@ def main():
             title = parse_recipe_title(content)
             recipe_data.append((title, content))
 
-    if not recipe_data:
-        print("No numbered markdown files found.")
-        return
-
-    draw_toc(pdf, [data[0] for data in recipe_data])
+    # --- Phase 1: Determine page counts for each recipe ---
+    recipe_page_counts = []
     for i, (title, content) in enumerate(recipe_data, 1):
-        print(f"Processing {title}...")
+        temp_pdf = RecipePDF()
+        parse_and_draw_recipe(temp_pdf, content, i)
+        recipe_page_counts.append(temp_pdf.page_no())
+
+    # --- Phase 2: Determine TOC page count ---
+    dummy_toc_info = [(title, 999) for title, _ in recipe_data]
+    temp_pdf_toc = RecipePDF()
+    draw_toc(temp_pdf_toc, dummy_toc_info)
+    toc_pages_count = temp_pdf_toc.page_no()
+
+    # --- Phase 3: Calculate final TOC info with offsets ---
+    toc_info = []
+    current_page = 1 + toc_pages_count
+    for (title, content), count in zip(recipe_data, recipe_page_counts):
+        toc_info.append((title, current_page))
+        current_page += count
+
+    # --- Phase 4: Render final PDF ---
+    pdf = RecipePDF()
+
+    # Draw TOC first
+    draw_toc(pdf, toc_info)
+
+    # Render recipes
+    for i, (title, content) in enumerate(recipe_data, 1):
+        print(f"[{book_name}] Processing {title}...")
         try:
             parse_and_draw_recipe(pdf, content, i)
         except Exception as e:
             print(f"Error processing {title}: {e}")
 
-    pdf.output("Recipes.pdf")
-    print("\nSuccess! Recipes.pdf generated.")
+    pdf.output(f"{book_name}.pdf")
+    print(f"Success! {book_name}.pdf generated.\n")
+
+
+def main():
+    # Identify top-level cookbook folders (directories that don't start with .)
+    folders = [
+        d
+        for d in glob.glob("*/")
+        if os.path.isdir(d) and not d.startswith(".") and d != "venv/"
+    ]
+
+    if not folders:
+        print("No cookbook folders found.")
+        return
+
+    for folder in sorted(folders):
+        generate_book(folder.rstrip("/"))
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ echo "Linting and fixing Python code..."
 $VENV_BIN/ruff check --fix generate_pdf.py
 
 echo "Formatting Markdown recipes..."
-$VENV_BIN/mdformat --number recipes/*.md
+# Format all .md files recursively, excluding venv
+find . -name "*.md" -not -path "./venv/*" -exec $VENV_BIN/mdformat --number {} +
 
 echo "Success! Code and recipes are PEP 8 and Markdown compliant."

@@ -29,7 +29,7 @@ jobs:
         run: |
           ruff format --check generate_pdf.py
           ruff check generate_pdf.py
-          mdformat --check --number recipes/*.md
+          find . -name "*.md" -not -path "./venv/*" -exec mdformat --check --number {} +
 
       - name: Install Arial fonts
         run: |
@@ -43,7 +43,10 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: Recipes.pdf
-          body: "Automatic build of the Recipe Cookbook for version ${{ github.ref_name }}."
+          files: |
+            EverydayCookbook.pdf
+            MyMomCookbook.pdf
+            UzbekCookbook.pdf
+          body: "Automatic build of the Recipe Cookbooks for version ${{ github.ref_name }}."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

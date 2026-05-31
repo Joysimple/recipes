@@ -32,6 +32,7 @@ Ensure you have Python 3 installed. The project uses a virtual environment for d
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+pre-commit install
 ```
 
 ### 3. Generate PDF

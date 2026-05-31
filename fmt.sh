@@ -10,10 +10,10 @@ if [ ! -d "venv" ]; then
 fi
 
 echo "Formatting Python code..."
-$VENV_BIN/ruff format generate_pdf.py
+$VENV_BIN/ruff format .
 
 echo "Linting and fixing Python code..."
-$VENV_BIN/ruff check --fix generate_pdf.py
+$VENV_BIN/ruff check --fix .
 
 echo "Formatting Markdown recipes..."
 # Format all .md files recursively, excluding venv

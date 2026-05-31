@@ -1,12 +1,10 @@
 import re
-from typing import List, Tuple
 
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
 from .config import Config
 from .fonts import FontManager
-from .models import Recipe
 
 
 class RecipePDF(FPDF):

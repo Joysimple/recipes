@@ -3,3 +3,4 @@ markdown
 ruff
 mdformat
 mdformat-gfm
+pre-commit

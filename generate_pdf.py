@@ -1,381 +1,22 @@
-import os
-import glob
-import re
-from fpdf import FPDF
+#!/usr/bin/env python3
+import argparse
+import logging
+from pathlib import Path
+from typing import List, Optional, Tuple
+
 from fpdf.enums import XPos, YPos
 
+from src.models import Recipe
+from src.parser import RecipeParser
+from src.renderer import RecipePDF
 
-class RecipePDF(FPDF):
-    def __init__(self):
-        super().__init__(format="A4")
-        self.set_margin(20)
-        self.set_auto_page_break(auto=True, margin=15)
-
-        # Cross-platform font search
-        possible_dirs = [
-            "/System/Library/Fonts/Supplemental",  # MacOS
-            "/Library/Fonts",  # MacOS Alternative
-            "/usr/share/fonts/truetype/msttcorefonts",  # Ubuntu/Debian
-            "/usr/share/fonts/msttcorefonts",  # Other Linux
-            "fonts",  # Local folder
-        ]
-
-        def find_font_file(filenames):
-            for d in possible_dirs:
-                for f in filenames:
-                    path = os.path.join(d, f)
-                    if os.path.exists(path):
-                        return path
-            return None
-
-        reg_path = find_font_file(["Arial.ttf", "arial.ttf", "Arial Unicode.ttf"])
-        bold_path = find_font_file(["Arial Bold.ttf", "Arial_Bold.ttf", "arialbd.ttf"])
-        ital_path = find_font_file(
-            ["Arial Italic.ttf", "Arial_Italic.ttf", "ariali.ttf"]
-        )
-        bold_ital_path = find_font_file(
-            ["Arial Bold Italic.ttf", "Arial_Bold_Italic.ttf", "arialbi.ttf"]
-        )
-
-        # Fallback to whatever we found for regular if others missing
-        bold_path = bold_path or reg_path
-        ital_path = ital_path or reg_path
-        bold_ital_path = bold_ital_path or reg_path
-
-        if not reg_path:
-            raise FileNotFoundError(
-                "Could not find Arial fonts. Please ensure they are installed."
-            )
-
-        self.add_font("CustomFont", "", reg_path)
-        self.add_font("CustomFont", "B", bold_path)
-        self.add_font("CustomFont", "I", ital_path)
-        self.add_font("CustomFont", "BI", bold_ital_path)
-        self.set_font("CustomFont", size=11)
-        self.set_text_color(0, 0, 0)
-        self.set_draw_color(0, 0, 0)
-
-    def write_styled(self, text, size=11, bullet=True, indent=0, base_style=""):
-        """
-        Custom justified text renderer. Handles **bold** and *italic* manually
-        to prevent word-splitting and ensure italics always work correctly.
-        """
-        if not text.strip():
-            return
-
-        # Clean up escaped markdown characters (e.g., \* becomes *)
-        text = text.replace("\\*", "*")
-
-        # Save original margins
-        prev_l_margin = self.l_margin
-        prev_r_margin = self.r_margin
-
-        new_l_margin = prev_l_margin + indent
-        self.set_left_margin(new_l_margin)
-        self.set_x(new_l_margin)
-
-        # 1. Parse text into unbreakable 'word' tokens
-        parts = re.split(r"(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*)", text)
-        fragments = []
-        for part in parts:
-            if not part:
-                continue
-            if part.startswith("***") and part.endswith("***"):
-                style, content = "BI", part[3:-3]
-            elif part.startswith("**") and part.endswith("**"):
-                style = "BI" if "I" in base_style else "B"
-                content = part[2:-2]
-            elif part.startswith("*") and part.endswith("*"):
-                # Always non-bold italic for * markers
-                style, content = "I", part[1:-1]
-            else:
-                style, content = base_style, part
-            fragments.append({"text": content, "style": style})
-
-        # Group fragments into Word objects (no spaces allowed inside a word)
-        words = []
-        current_word_fragments = []
-
-        for frag in fragments:
-            sub_parts = re.split(r"(\s+)", frag["text"])
-            for sp in sub_parts:
-                if not sp:
-                    continue
-                if sp.isspace():
-                    if current_word_fragments:
-                        words.append({"fragments": current_word_fragments})
-                        current_word_fragments = []
-                else:
-                    current_word_fragments.append({"text": sp, "style": frag["style"]})
-
-        if current_word_fragments:
-            words.append({"fragments": current_word_fragments})
-
-        # 2. Add bullet if needed
-        if bullet:
-            self.set_font("CustomFont", "B", size)
-            self.write(7, " • ")
-
-        # 3. Assemble lines manually for justification
-        lines = []
-        current_line = []
-        current_line_w = 0
-        # Account for the bullet if it was drawn
-        start_x_offset = (self.get_x() - self.l_margin) if bullet else 0
-        available_w = self.epw - start_x_offset - 0.1
-
-        for word in words:
-            # Calculate word width
-            word_w = 0
-            for f in word["fragments"]:
-                self.set_font("CustomFont", f["style"], size)
-                word_w += self.get_string_width(f["text"])
-            word["width"] = word_w
-
-            # Check if word fits
-            # We assume a space between words (approx width of a space in regular font)
-            self.set_font("CustomFont", base_style, size)
-            space_w = self.get_string_width(" ")
-
-            if current_line and (current_line_w + space_w + word_w > available_w):
-                # Line full, save it
-                lines.append(
-                    {
-                        "words": current_line,
-                        "width": current_line_w,
-                        "available": available_w,
-                    }
-                )
-                current_line = []
-                current_line_w = 0
-                available_w = self.epw - 0.1
-
-            current_line.append(word)
-            if current_line_w > 0:
-                current_line_w += space_w
-            current_line_w += word_w
-
-        if current_line:
-            lines.append(
-                {
-                    "words": current_line,
-                    "width": current_line_w,
-                    "available": available_w,
-                    "last": True,
-                }
-            )
-
-        # 4. Render lines
-        # Disable auto-wrap during manual rendering
-        self.set_right_margin(0)
-        for i, line in enumerate(lines):
-            if i > 0:
-                self.set_x(self.l_margin)
-
-            is_last = line.get("last", False)
-            num_words = len(line["words"])
-            num_gaps = num_words - 1
-
-            # Default space width
-            self.set_font("CustomFont", base_style, size)
-            base_space_w = self.get_string_width(" ")
-
-            # Calculate extra space for justification
-            extra_per_gap = 0
-            if not is_last and num_gaps > 0:
-                # available space / gaps
-                extra_per_gap = (line["available"] - line["width"]) / num_gaps
-
-            for j, word in enumerate(line["words"]):
-                # Render fragments of the word
-                for f in word["fragments"]:
-                    self.set_font("CustomFont", f["style"], size)
-                    self.write(7, f["text"])
-
-                # Render gap
-                if j < num_gaps:
-                    gap_w = base_space_w + extra_per_gap
-                    self.set_x(self.get_x() + gap_w)
-
-            self.ln(7)
-
-        # Restore margins
-        self.set_right_margin(prev_r_margin)
-        self.set_left_margin(prev_l_margin)
-        self.ln(2)
-
-    def draw_section_header(self, text):
-        self.ln(6)
-        if self.get_y() > 250:
-            self.add_page()
-
-        curr_y = self.get_y()
-        self.set_fill_color(245, 245, 245)
-        self.rect(self.l_margin, curr_y, self.epw, 8, style="F")
-        self.set_fill_color(0, 0, 0)
-        self.rect(self.l_margin, curr_y, 3, 8, style="F")
-
-        self.set_x(self.l_margin + 7)
-        self.set_font("CustomFont", "B", 13)
-        self.cell(0, 8, text.upper(), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        self.ln(2)
-
-    def draw_subsection_header(self, text):
-        self.ln(4)
-        if self.get_y() > 260:
-            self.add_page()
-
-        self.set_font("CustomFont", "B", 12)
-        self.cell(0, 8, text.upper(), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        self.ln(1)
-
-    def write_inline_styled(self, text, size=11, default_style=""):
-        """Helper to write a single line of text with **bold** and *italic* support using write()"""
-        if not text:
-            return
-
-        # Clean up escaped markdown characters
-        text = text.replace("\\*", "*")
-
-        parts = re.split(r"(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*)", text)
-        for part in parts:
-            if not part:
-                continue
-            if part.startswith("***") and part.endswith("***"):
-                self.set_font("CustomFont", "BI", size)
-                self.write(8, part[3:-3])
-            elif part.startswith("**") and part.endswith("**"):
-                style = "BI" if "I" in default_style else "B"
-                self.set_font("CustomFont", style, size)
-                self.write(8, part[2:-2])
-            elif part.startswith("*") and part.endswith("*"):
-                # Always non-bold italic for * markers
-                self.set_font("CustomFont", "I", size)
-                self.write(8, part[1:-1])
-            else:
-                self.set_font("CustomFont", default_style, size)
-                self.write(8, part)
-
-    def get_styled_width(self, text, size=11, default_style=""):
-        """Calculate the total width of a styled string without rendering it"""
-        if not text:
-            return 0
-
-        text = text.replace("\\*", "*")
-
-        total_w = 0
-        parts = re.split(r"(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*)", text)
-        for part in parts:
-            if not part:
-                continue
-            if part.startswith("***") and part.endswith("***"):
-                self.set_font("CustomFont", "BI", size)
-                total_w += self.get_string_width(part[3:-3])
-            elif part.startswith("**") and part.endswith("**"):
-                style = "BI" if "I" in default_style else "B"
-                self.set_font("CustomFont", style, size)
-                total_w += self.get_string_width(part[2:-2])
-            elif part.startswith("*") and part.endswith("*"):
-                # Always non-bold italic for * markers
-                self.set_font("CustomFont", "I", size)
-                total_w += self.get_string_width(part[1:-1])
-            else:
-                self.set_font("CustomFont", default_style, size)
-                total_w += self.get_string_width(part)
-        return total_w
-
-    def draw_ingredient_line(self, name, quantity):
-        if self.get_y() > 270:
-            self.add_page()
-
-        curr_y = self.get_y()
-
-        # Clean up escaped characters
-        name = name.replace("\\*", "*")
-        quantity = quantity.replace("\\*", "*")
-
-        # Robust footnote detection: starts with one or more asterisks
-        stripped_name = name.strip()
-        is_footnote = False
-        if stripped_name.startswith("*"):
-            if not quantity.strip():
-                is_footnote = True
-            elif re.match(r"^\*+\s+", stripped_name):
-                # e.g. "* Option A" or "** Option B"
-                is_footnote = True
-
-        if is_footnote:
-            self.set_x(self.l_margin)
-            # Combine name and quantity for footnotes that were split by a colon
-            full_text = (
-                f"{name.strip()}: {quantity.strip()}"
-                if quantity.strip()
-                else name.strip()
-            )
-            # Render as light italic, justified, no bullet
-            self.write_styled(
-                full_text, size=10, bullet=False, indent=0, base_style="I"
-            )
-            return
-
-        # Calculate widths for the dotted line
-        clean_name = re.sub(r"\*\*\*|\*\*|\*", "", name).replace("\\", "").strip()
-        name_width = self.get_string_width(clean_name) + 3
-
-        # 1. Render the name (left side, bold by default)
-        self.set_x(self.l_margin)
-        self.write_inline_styled(name, size=11, default_style="B")
-
-        # 2. Render the quantity (right side, bold by default)
-        qty_width = self.get_styled_width(quantity, size=11, default_style="B")
-        prev_r_margin = self.r_margin
-        self.set_right_margin(0)
-        self.set_x(self.w - prev_r_margin - qty_width)
-        self.write_inline_styled(quantity, size=11, default_style="B")
-        self.set_right_margin(prev_r_margin)
-
-        # 3. Draw dotted line between name and quantity
-        self.set_draw_color(200, 200, 200)
-        self.set_line_width(0.1)
-        line_y = curr_y + 5.5
-        end_x = self.w - prev_r_margin - qty_width - 2
-
-        if end_x > self.l_margin + name_width:
-            self.set_dash_pattern(dash=0.5, gap=1.5)
-            self.line(self.l_margin + name_width, line_y, end_x, line_y)
-            self.set_dash_pattern()
-
-        # Move to next line
-        self.ln(7)
-
-    def draw_boxed_section(self, title, content_lines):
-        self.ln(5)
-        clean_content = [line.strip() for line in content_lines if line.strip()]
-        if not clean_content:
-            return
-
-        if self.get_y() > 250:
-            self.add_page()
-
-        self.set_font("CustomFont", "B", 11)
-        self.cell(0, 6, title.upper(), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-        for line in clean_content:
-            text = line.lstrip("* ").lstrip("- ").lstrip("• ").strip()
-            self.write_styled(text, size=10, bullet=True)
-
-        self.ln(5)
+# Configure logging
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
-def parse_recipe_title(content):
-    lines = content.split("\n")
-    if not lines:
-        return "Untitled Recipe"
-    title_match = re.search(r"^#\s*(.*)", lines[0])
-    return title_match.group(1).strip() if title_match else "Untitled Recipe"
-
-
-def draw_toc(pdf, toc_data):
+def draw_toc(pdf: RecipePDF, toc_data: List[Tuple[str, int]]):
     """
     Render the Table of Contents.
     toc_data is a list of (recipe_title, start_page_number)
@@ -394,11 +35,24 @@ def draw_toc(pdf, toc_data):
         )
         display_text = f"{i}. {clean_title}"
 
-        pdf.cell(0, 10, display_text)
-        pdf.set_x(-pdf.r_margin - 15)
-        pdf.cell(15, 10, str(page_num), align="R", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        # Create internal link to the recipe page
+        link_id = pdf.add_link()
+        pdf.set_link(link_id, page=page_num)
 
-        pdf.set_draw_color(180, 180, 180)
+        # Make both the title and the number clickable
+        pdf.cell(0, 10, display_text, link=link_id)
+        pdf.set_x(-pdf.r_margin - 15)
+        pdf.cell(
+            15,
+            10,
+            str(page_num),
+            align="R",
+            new_x=XPos.LMARGIN,
+            new_y=YPos.NEXT,
+            link=link_id,
+        )
+
+        pdf.set_draw_color(*pdf.config.COLOR_TOC_LINE)
         pdf.set_dash_pattern(dash=0.5, gap=1.5)
         line_y = curr_y + 7
         title_width = pdf.get_string_width(display_text) + 10
@@ -406,169 +60,158 @@ def draw_toc(pdf, toc_data):
         pdf.set_dash_pattern()
 
 
-def parse_and_draw_recipe(pdf, content, recipe_num):
-    content = content.replace("\r\n", "\n")
-    lines = content.split("\n")
-    title = parse_recipe_title(content)
-
-    subtitle = ""
-    for line in lines[1:5]:
-        sub_match = re.search(r"^\*\*(.*)\*\*", line)
-        if sub_match:
-            subtitle = sub_match.group(1)
-            break
-
+def render_recipe_structured(pdf: RecipePDF, recipe: Recipe):
     pdf.add_page()
-    recipe_start_page = pdf.page_no()
+    recipe.start_page = pdf.page_no()
 
     pdf.set_y(15)
-    pdf.set_font("CustomFont", "B", 22)
-    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("CustomFont", "B", pdf.config.TITLE_FONT_SIZE)
+    pdf.set_text_color(*pdf.config.COLOR_BLACK)
     # Support multi-line titles
-    pdf.multi_cell(0, 10, title.upper(), align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.multi_cell(
+        0, 10, recipe.title.upper(), align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT
+    )
 
-    if subtitle:
+    if recipe.subtitle:
         pdf.ln(2)
-        pdf.set_font("CustomFont", "", 10)
+        pdf.set_font("CustomFont", "", pdf.config.SUBTITLE_FONT_SIZE)
         # Support multi-line subtitles
-        pdf.multi_cell(0, 5, subtitle, align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.multi_cell(
+            0, 5, recipe.subtitle, align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT
+        )
 
     pdf.ln(4)
-    pdf.set_draw_color(0, 0, 0)
+    pdf.set_draw_color(*pdf.config.COLOR_BLACK)
     pdf.set_line_width(0.3)
     pdf.line(pdf.l_margin + 30, pdf.get_y(), pdf.w - pdf.r_margin - 30, pdf.get_y())
     pdf.ln(8)
 
-    sections = re.split(r"\n##\s+", "\n" + content)
-    for section in sections:
-        if not section.strip() or section.strip().startswith("# "):
-            continue
+    for section in recipe.sections:
+        if section.is_ingredients:
+            pdf.draw_section_header(section.title)
+            for line in section.body:
+                import re
 
-        sec_lines = section.strip().split("\n")
-        header_text = re.sub(r"^\d+\.\s*", "", sec_lines[0].strip())
-        body = sec_lines[1:]
-
-        if "ИНГРЕДИЕНТЫ" in header_text.upper():
-            pdf.draw_section_header(header_text)
-            for line in body:
                 line = line.strip()
                 if line.startswith("###"):
                     pdf.draw_subsection_header(line.lstrip("#").strip())
                     continue
                 if line.startswith(("*", "-")):
-                    # Simpler regex that preserves markers and splits at the first colon
                     m = re.search(r"^[\*\-]\s*(.*?):\s*(.*)", line)
                     if m:
                         pdf.draw_ingredient_line(m.group(1), m.group(2))
                     else:
-                        # Handle footnotes/simple items: remove only the bullet, keep the rest
                         clean_line = re.sub(r"^[\*\-]\s*", "", line)
                         pdf.draw_ingredient_line(clean_line, "")
         else:
-            pdf.draw_section_header(header_text)
-            for line in body:
+            pdf.draw_section_header(section.title)
+            for line in section.body:
                 if not line.strip():
                     continue
-
-                # Handle manual page breaks (invisible in most renderers)
                 if "<!-- PAGE_BREAK -->" in line:
                     pdf.add_page()
                     continue
-
-                # Handle subsections
                 if line.strip().startswith("###"):
                     pdf.draw_subsection_header(line.strip().lstrip("#").strip())
                     continue
-
-                # Detect indentation
                 stripped = line.lstrip()
                 indent_size = len(line) - len(stripped)
+                import re
 
-                # Clean marker
                 clean_line = re.sub(r"^[\*\-]?\s*\d*\.?\s*", "", stripped)
-
-                # Apply indentation (approx 3mm per 2 spaces)
                 pdf.write_styled(
-                    clean_line, size=11, bullet=True, indent=(indent_size // 2) * 3
+                    clean_line,
+                    size=pdf.config.BODY_FONT_SIZE,
+                    bullet=True,
+                    indent=(indent_size // 2) * 3,
                 )
+    return recipe.start_page
 
-    return recipe_start_page
 
-
-def generate_book(folder_path):
-    book_name = os.path.basename(folder_path)
-
-    md_files = sorted(
-        [
-            f
-            for f in glob.glob(os.path.join(folder_path, "*.md"))
-            if os.path.basename(f)[0].isdigit()
-        ]
-    )
+def generate_book(folder_path: Path, output_filename: Optional[str] = None):
+    book_name = folder_path.name
+    md_files = sorted([f for f in folder_path.glob("*.md") if f.name[0].isdigit()])
 
     if not md_files:
-        print(f"No recipes found in {folder_path}")
+        logger.warning(f"No recipes found in {folder_path}")
         return
 
-    recipe_data = []
+    recipes = []
     for md_file in md_files:
-        with open(md_file, "r", encoding="utf-8") as f:
-            content = f.read()
-            title = parse_recipe_title(content)
-            recipe_data.append((title, content))
+        try:
+            recipes.append(RecipeParser.parse_file(md_file))
+        except Exception as e:
+            logger.error(f"Error parsing {md_file}: {e}")
 
-    # --- Phase 1: Determine page counts for each recipe ---
+    # --- Phase 1: Determine page counts ---
     recipe_page_counts = []
-    for i, (title, content) in enumerate(recipe_data, 1):
+    for recipe in recipes:
         temp_pdf = RecipePDF()
-        parse_and_draw_recipe(temp_pdf, content, i)
+        render_recipe_structured(temp_pdf, recipe)
         recipe_page_counts.append(temp_pdf.page_no())
 
-    # --- Phase 2: Determine TOC page count ---
-    dummy_toc_info = [(title, 999) for title, _ in recipe_data]
+    # --- Phase 2: Determine TOC count ---
+    dummy_toc_info = [(r.title, 999) for r in recipes]
     temp_pdf_toc = RecipePDF()
     draw_toc(temp_pdf_toc, dummy_toc_info)
     toc_pages_count = temp_pdf_toc.page_no()
 
-    # --- Phase 3: Calculate final TOC info with offsets ---
+    # --- Phase 3: Calculate TOC offsets ---
     toc_info = []
     current_page = 1 + toc_pages_count
-    for (title, content), count in zip(recipe_data, recipe_page_counts):
-        toc_info.append((title, current_page))
+    for recipe, count in zip(recipes, recipe_page_counts):
+        toc_info.append((recipe.title, current_page))
         current_page += count
 
     # --- Phase 4: Render final PDF ---
     pdf = RecipePDF()
-
-    # Draw TOC first
     draw_toc(pdf, toc_info)
-
-    # Render recipes
-    for i, (title, content) in enumerate(recipe_data, 1):
-        print(f"[{book_name}] Processing {title}...")
+    for recipe in recipes:
+        logger.info(f"[{book_name}] Processing {recipe.title}...")
         try:
-            parse_and_draw_recipe(pdf, content, i)
+            render_recipe_structured(pdf, recipe)
         except Exception as e:
-            print(f"Error processing {title}: {e}")
+            logger.error(f"Error processing {recipe.title}: {e}")
 
-    pdf.output(f"{book_name}.pdf")
-    print(f"Success! {book_name}.pdf generated.\n")
+    output_path = output_filename or f"{book_name}.pdf"
+    pdf.output(output_path)
+    logger.info(f"Success! {output_path} generated.\n")
 
 
 def main():
-    # Identify top-level cookbook folders (directories that don't start with .)
-    folders = [
-        d
-        for d in glob.glob("*/")
-        if os.path.isdir(d) and not d.startswith(".") and d != "venv/"
-    ]
-
+    parser = argparse.ArgumentParser(
+        description="Generate professional recipe PDFs from Markdown files."
+    )
+    parser.add_argument("folders", nargs="*", help="Cookbook folders to process.")
+    parser.add_argument("-o", "--output", help="Output filename.")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging."
+    )
+    args = parser.parse_args()
+    if args.verbose:
+        logger.setLevel(logging.DEBUG)
+    base_dir = Path(".")
+    if args.folders:
+        folders = [Path(f) for f in args.folders if Path(f).is_dir()]
+    else:
+        folders = [
+            d
+            for d in base_dir.iterdir()
+            if d.is_dir()
+            and not d.name.startswith(".")
+            and d.name != "venv"
+            and d.name != "src"
+        ]
     if not folders:
-        print("No cookbook folders found.")
+        logger.error("No cookbook folders found.")
         return
-
+    if args.output and len(folders) > 1:
+        logger.error(
+            "Output filename can only be specified when processing a single folder."
+        )
+        return
     for folder in sorted(folders):
-        generate_book(folder.rstrip("/"))
+        generate_book(folder, output_filename=args.output)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ name: Build and Release Recipes PDF
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write
@@ -18,7 +18,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Install dependencies
         run: |
@@ -27,8 +27,8 @@ jobs:
 
       - name: Lint and Format check
         run: |
-          ruff format --check generate_pdf.py
-          ruff check generate_pdf.py
+          ruff format --check .
+          ruff check .
           find . -name "*.md" -not -path "./venv/*" -exec mdformat --check --number {} +
 
       - name: Install Arial fonts

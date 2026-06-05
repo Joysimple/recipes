@@ -172,24 +172,69 @@ class RecipePDF(FPDF):
 
     def draw_section_header(self, text):
         self.ln(6)
-        if self.get_y() > 250:
-            self.add_page()
-        curr_y = self.get_y()
-        self.set_fill_color(*self.config.COLOR_GREY_LIGHT)
-        self.rect(self.l_margin, curr_y, self.epw, 8, style="F")
-        self.set_fill_color(*self.config.COLOR_BLACK)
-        self.rect(self.l_margin, curr_y, 3, 8, style="F")
-        self.set_x(self.l_margin + 7)
         self.set_font("CustomFont", "B", self.config.SECTION_HEADER_FONT_SIZE)
-        self.cell(0, 8, text.upper(), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        header_text = text.upper()
+
+        # 1. Calculate height by getting the actual number of lines
+        line_height = 8
+        available_text_w = self.epw - 7
+        # We get the list of lines to be absolutely sure about the count
+        # In fpdf2 2.8.7, multi_cell with output="LINES" returns a list of line objects
+        lines_list = self.multi_cell(
+            available_text_w,
+            line_height,
+            header_text,
+            align="L",
+            dry_run=True,
+            output="LINES",
+        )
+        num_lines = len(lines_list)
+        total_h = max(8, num_lines * line_height)
+
+        # 2. Handle page break
+        if self.get_y() + total_h > 275:
+            self.add_page()
+
+        curr_y = self.get_y()
+
+        # 3. Draw rectangles
+        # Grey background
+        self.set_fill_color(*self.config.COLOR_GREY_LIGHT)
+        self.rect(self.l_margin, curr_y, self.epw, total_h, style="F")
+        # Black accent bar
+        self.set_fill_color(*self.config.COLOR_BLACK)
+        self.rect(self.l_margin, curr_y, 3, total_h, style="F")
+
+        # 4. Render text using the SAME explicit width
+        self.set_x(self.l_margin + 7)
+        self.multi_cell(
+            available_text_w,
+            line_height,
+            header_text,
+            new_x=XPos.LMARGIN,
+            new_y=YPos.NEXT,
+        )
         self.ln(2)
 
     def draw_subsection_header(self, text):
         self.ln(4)
-        if self.get_y() > 260:
-            self.add_page()
         self.set_font("CustomFont", "B", self.config.SUBSECTION_HEADER_FONT_SIZE)
-        self.cell(0, 8, text.upper(), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        header_text = text.upper()
+
+        # Calculate height with explicit line count
+        line_height = 8
+        lines_list = self.multi_cell(
+            self.epw, line_height, header_text, align="L", dry_run=True, output="LINES"
+        )
+        num_lines = len(lines_list)
+        total_h = num_lines * line_height
+
+        if self.get_y() + total_h > 280:
+            self.add_page()
+
+        self.multi_cell(
+            self.epw, line_height, header_text, new_x=XPos.LMARGIN, new_y=YPos.NEXT
+        )
         self.ln(1)
 
     def write_inline_styled(self, text, size=None, default_style=""):

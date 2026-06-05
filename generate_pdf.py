@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import logging
+import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -29,35 +30,72 @@ def draw_toc(pdf: RecipePDF, toc_data: List[Tuple[str, int]]):
 
     pdf.set_font("CustomFont", "", 14)
     for i, (title, page_num) in enumerate(toc_data, 1):
-        curr_y = pdf.get_y()
         clean_title = (
             title.replace("**", "").replace("\\*", "*").replace("\\", "").strip()
         )
         display_text = f"{i}. {clean_title}"
 
-        # Create internal link to the recipe page
+        # Create internal link
         link_id = pdf.add_link()
         pdf.set_link(link_id, page=page_num)
 
-        # Make both the title and the number clickable
-        pdf.cell(0, 10, display_text, link=link_id)
-        pdf.set_x(-pdf.r_margin - 15)
-        pdf.cell(
-            15,
-            10,
-            str(page_num),
-            align="R",
-            new_x=XPos.LMARGIN,
-            new_y=YPos.NEXT,
-            link=link_id,
-        )
+        # Available width for title (epw - 15mm for page number)
+        title_w = pdf.epw - 15
 
-        pdf.set_draw_color(*pdf.config.COLOR_TOC_LINE)
-        pdf.set_dash_pattern(dash=0.5, gap=1.5)
-        line_y = curr_y + 7
-        title_width = pdf.get_string_width(display_text) + 10
-        pdf.line(pdf.l_margin + title_width, line_y, pdf.w - pdf.r_margin - 20, line_y)
-        pdf.set_dash_pattern()
+        # Calculate lines to handle multi-line titles
+        lines_list = pdf.multi_cell(
+            title_w, 8, display_text, dry_run=True, output="LINES"
+        )
+        entry_h = len(lines_list) * 8
+
+        # Check if we need a page break
+        if pdf.get_y() + entry_h > 275:
+            pdf.add_page()
+
+        # Render all lines except the last one
+        for j, line_text in enumerate(lines_list):
+            curr_y = pdf.get_y()
+            is_last = j == len(lines_list) - 1
+
+            if not is_last:
+                # Standard line rendering
+                pdf.multi_cell(
+                    title_w,
+                    8,
+                    line_text,
+                    link=link_id,
+                    new_x=XPos.LMARGIN,
+                    new_y=YPos.NEXT,
+                )
+            else:
+                # Last line: add dots and page number
+                text_w = pdf.get_string_width(line_text)
+                pdf.write(8, line_text, link=link_id)
+
+                # Draw dots
+                pdf.set_draw_color(*pdf.config.COLOR_TOC_LINE)
+                pdf.set_dash_pattern(dash=0.5, gap=1.5)
+                dot_y = curr_y + 6
+                # Start 2mm after text, end 2mm before page number
+                dot_start_x = pdf.l_margin + text_w + 2
+                dot_end_x = pdf.w - pdf.r_margin - 17
+
+                if dot_end_x > dot_start_x:
+                    pdf.line(dot_start_x, dot_y, dot_end_x, dot_y)
+                pdf.set_dash_pattern()
+
+                # Page number
+                pdf.set_x(-pdf.r_margin - 15)
+                pdf.cell(
+                    15,
+                    8,
+                    str(page_num),
+                    align="R",
+                    new_x=XPos.LMARGIN,
+                    new_y=YPos.NEXT,
+                    link=link_id,
+                )
+        pdf.ln(1)  # Gap between items
 
 
 def render_recipe_structured(pdf: RecipePDF, recipe: Recipe):
@@ -87,12 +125,20 @@ def render_recipe_structured(pdf: RecipePDF, recipe: Recipe):
     pdf.ln(8)
 
     for section in recipe.sections:
+        # Check if the section starts with a page break
+        if section.body and "<!-- PAGE_BREAK -->" in section.body[0]:
+            pdf.add_page()
+            section.body = section.body[1:]
+
         if section.is_ingredients:
             pdf.draw_section_header(section.title)
             for line in section.body:
-                import re
-
                 line = line.strip()
+                if not line:
+                    continue
+                if "<!-- PAGE_BREAK -->" in line:
+                    pdf.add_page()
+                    continue
                 if line.startswith("###"):
                     pdf.draw_subsection_header(line.lstrip("#").strip())
                     continue
@@ -116,7 +162,6 @@ def render_recipe_structured(pdf: RecipePDF, recipe: Recipe):
                     continue
                 stripped = line.lstrip()
                 indent_size = len(line) - len(stripped)
-                import re
 
                 clean_line = re.sub(r"^[\*\-]?\s*\d*\.?\s*", "", stripped)
                 pdf.write_styled(

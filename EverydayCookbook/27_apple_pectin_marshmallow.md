@@ -1,6 +1,6 @@
 # ЯБЛОЧНЫЙ ЗЕФИР НА ПЕКТИНЕ HM
 
-**Slow Set High Methoxyl Pectin | Caro Light Corn Syrup | KitchenAid Multi-Cooker + Stir Tower | Stand Mixer**
+**Slow Set High Methoxyl Pectin | Karo Light Corn Syrup | KitchenAid Multi-Cooker + Stir Tower | Stand Mixer**
 
 ## ИНГРЕДИЕНТЫ ПО ФАЗАМ ВНЕСЕНИЯ
 
@@ -13,7 +13,7 @@
 ### Фаза 2: Сиропный блок (в мультиварку, после закипания)
 
 - **Сахар-песок (Часть 2):** 230 г
-- **Caro Light Corn Syrup** *(кукурузный сироп)*: 100 г *(повышенная доза против засахаривания)*
+- **Karo Light Corn Syrup** *(кукурузный сироп)*: 100 г *(повышенная доза против засахаривания)*
 
 ### Фаза 3: Белковая основа (в чашу миксера)
 

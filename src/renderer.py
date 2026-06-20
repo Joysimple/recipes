@@ -329,24 +329,52 @@ class RecipePDF(FPDF):
 
         # --- Standard Ingredient Line ---
         # 1. Calculate widths
-        clean_name = re.sub(r"\*\*\*|\*\*|\*", "", name).replace("\\", "").strip()
-        name_width = self.get_string_width(clean_name) + 3
+        name_width = (
+            self.get_styled_width(
+                name, size=self.config.BODY_FONT_SIZE, default_style="B"
+            )
+            + 3
+        )
         qty_width = self.get_styled_width(
             quantity, size=self.config.BODY_FONT_SIZE, default_style="B"
         )
 
         # 2. Check if combined width exceeds line capacity
         if name_width + qty_width > self.epw - 10:
-            # Entry is too long, use "Condensed Justified-to-Right" layout
-            full_text = f"{name.strip()}: {quantity.strip()}"
+            # Entry is too long for a single line with dots.
+            # We use a two-column approach with explicit margins to prevent overlap.
+
+            # Determine split point: give name space, but leave at least 30% for quantity.
+            # We also ensure the name doesn't take more than 70% of the page.
+            split_x = min(max(name_width + 5, self.epw * 0.4), self.epw * 0.7)
+
+            curr_y = self.get_y()
+            prev_l_margin = self.l_margin
+            prev_r_margin = self.r_margin
+
+            # Column 1: Ingredient Name (Left)
+            # Constrain name to the left column to prevent overlap
+            self.set_right_margin(self.w - self.l_margin - split_x)
+            self.write_styled(name, bullet=False, indent=0, base_style="B", align="L")
+            name_end_y = self.get_y()
+
+            # Column 2: Quantity/Details (Right)
+            # Reset Y to start side-by-side with the name
+            self.set_y(curr_y)
+            # Constrain quantity to the right column
+            self.set_left_margin(prev_l_margin + split_x)
+            self.set_right_margin(prev_r_margin)
+
+            # Render quantity right-aligned within its column
             self.write_styled(
-                full_text,
-                size=self.config.BODY_FONT_SIZE,
-                bullet=False,
-                indent=0,
-                base_style="B",  # Make everything bold by default
-                align="JR",  # Justify all lines, Right-align the last one
+                quantity, bullet=False, indent=0, base_style="B", align="R"
             )
+            qty_end_y = self.get_y()
+
+            # Restore margins and set Y to the bottom of the taller column
+            self.set_left_margin(prev_l_margin)
+            self.set_right_margin(prev_r_margin)
+            self.set_y(max(name_end_y, qty_end_y))
         else:
             # Standard single line rendering with dots
             self.set_x(self.l_margin)
@@ -369,6 +397,7 @@ class RecipePDF(FPDF):
                 self.line(self.l_margin + name_width, line_y, end_x, line_y)
                 self.set_dash_pattern()
             self.ln(7)
+            self.ln(2)  # Added for consistency with write_styled used in the long path
 
     def draw_boxed_section(self, title, content_lines):
         self.ln(5)

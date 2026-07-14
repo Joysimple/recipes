@@ -1,4 +1,4 @@
-# КУРИЦА БУРБОН (BOURBON CHICKEN)
+# КУРИЦА БУРБОН ОТ THE WOKS OF LIFE (BOURBON CHICKEN)
 
 **Курица | Техника вельветинга (Velveting) | WOK**
 

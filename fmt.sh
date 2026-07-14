@@ -1,5 +1,4 @@
 #!/bin/bash
-# Format and lint Python code using Ruff
 set -e
 
 VENV_BIN="./venv/bin"
@@ -9,14 +8,9 @@ if [ ! -d "venv" ]; then
     exit 1
 fi
 
-echo "Formatting Python code..."
-$VENV_BIN/ruff format .
-
-echo "Linting and fixing Python code..."
-$VENV_BIN/ruff check --fix .
-
-echo "Formatting Markdown recipes..."
-# Format all .md files recursively, excluding venv
-find . -name "*.md" -not -path "./venv/*" -exec $VENV_BIN/mdformat --number {} +
+echo "Running style and formatting checks via pre-commit..."
+# Force pre-commit to run ruff, ruff-format, and mdformat (with its plugins) on all files
+$VENV_BIN/pre-commit run --all-files
 
 echo "Success! Code and recipes are PEP 8 and Markdown compliant."
+

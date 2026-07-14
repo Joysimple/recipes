@@ -26,7 +26,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Lint and Format check (via pre-commit)
-        uses: pre-commit/action@v3.0.1
+        run: pre-commit run --all-files
 
       - name: Install Arial fonts
         run: |

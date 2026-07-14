@@ -41,6 +41,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: |
+            AmericanChineseTakeaway.pdf
             EverydayCookbook.pdf
             MyMomCookbook.pdf
             UzbekCookbook.pdf

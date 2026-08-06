@@ -1,0 +1,1 @@
+../EverydayCookbook/60_GOST_PLOMBIR.md

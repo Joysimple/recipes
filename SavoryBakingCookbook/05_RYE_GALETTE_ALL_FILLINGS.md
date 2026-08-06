@@ -1,0 +1,1 @@
+../EverydayCookbook/41_RYE_GALETTE_ALL_FILLINGS.md

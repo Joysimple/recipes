@@ -1,0 +1,1 @@
+../EverydayCookbook/40_RYE_GALETTE-v2.md

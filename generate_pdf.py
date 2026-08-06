@@ -175,7 +175,10 @@ def render_recipe_structured(pdf: RecipePDF, recipe: Recipe):
 
 def generate_book(folder_path: Path, output_filename: Optional[str] = None):
     book_name = folder_path.name
-    md_files = sorted([f for f in folder_path.glob("*.md") if f.name[0].isdigit()])
+    md_files = sorted(
+        (f for f in folder_path.glob("*.md") if f.name[0].isdigit()),
+        key=lambda f: int(f.name.split("_", 1)[0]),
+    )
 
     if not md_files:
         logger.warning(f"No recipes found in {folder_path}")

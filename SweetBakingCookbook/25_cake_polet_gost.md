@@ -1,0 +1,1 @@
+../EverydayCookbook/82_cake_polet_gost.md

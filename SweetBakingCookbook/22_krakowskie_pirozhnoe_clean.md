@@ -1,0 +1,1 @@
+../EverydayCookbook/78_krakowskie_pirozhnoe_clean.md

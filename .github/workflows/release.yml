@@ -42,8 +42,12 @@ jobs:
         with:
           files: |
             AmericanChineseTakeaway.pdf
+            BreadCookbook.pdf
             EverydayCookbook.pdf
+            IceCreamCookbook.pdf
             MyMomCookbook.pdf
+            SavoryBakingCookbook.pdf
+            SweetBakingCookbook.pdf
             UzbekCookbook.pdf
           body: "Automatic build of the Recipe Cookbooks for version ${{ github.ref_name }}."
         env:

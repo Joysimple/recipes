@@ -1,0 +1,1 @@
+../EverydayCookbook/88_cake_leningrad_gost.md

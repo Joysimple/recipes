@@ -1,0 +1,1 @@
+../EverydayCookbook/69_keks_stolichny_v2.md

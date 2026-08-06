@@ -1,0 +1,1 @@
+../EverydayCookbook/84_cookies_kurabe_gost.md

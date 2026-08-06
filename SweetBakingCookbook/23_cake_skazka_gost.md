@@ -1,0 +1,1 @@
+../EverydayCookbook/80_cake_skazka_gost.md

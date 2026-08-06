@@ -1,0 +1,1 @@
+../EverydayCookbook/81_cake_praga_gost.md

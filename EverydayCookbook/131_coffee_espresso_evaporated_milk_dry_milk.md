@@ -1,6 +1,6 @@
 # МОРОЖЕНОЕ «ЭСПРЕССО» — СУПЕР-ТЯГУЧАЯ ВЕРСИЯ С СУХИМ МОЛОКОМ (NFDM)
 
-**Адаптированная плотная версия без яиц | KitchenAid Multi-Cooker + Stir Tower | Whynter 2 Quart Capacity Compressor Ice Cream Maker**
+**KitchenAid Multi-Cooker + Stir Tower | Whynter 2 Quart Capacity Compressor Ice Cream Maker**
 
 ## ИНГРЕДИЕНТЫ ПО ФАЗАМ ВНЕСЕНИЯ
 
@@ -31,7 +31,7 @@
 
 ### Вариант В: «Пряный Мексиканский Эспрессо» (Spiced Mexican Espresso)
 
-- **Дополнительно в Фазу 2:** 1.5–2 ч. л. Nielsen-Massey Pure Mexican Vanilla Extract + 1 ч. л. Nielsen-Massey Pure Coffee Extract *(мадагаскарская паста в этом варианте не используется)*.
+- **Дополнительно в Фазу 2:** 1.5–2 ч. л. Nielsen-Massey Pure Mexican Vanilla Extract + 1 ч. л. Nielsen-Massey Pure Coffee Extract.
 
 ## ТЕХНОЛОГИЯ (KitchenAid Multi-Cooker + Stir Tower)
 
@@ -44,6 +44,8 @@
 
 - **Созревание:** Процедите базу через мелкое сито в контейнер Cambro, накройте пищевой пленкой «в контакт». Охладить в холодильнике **не менее 8–12 часов** *(лучше на ночь)*. За время созревания база заметно загустеет за счет гидратированного сухого белка.
 - **Фризерование:** Перелейте созревшую ледяную базу во фризер Whynter *(режим Ice Cream)*. Запустите цикл заморозки на **30–35 минут** до получения шелковистой, плотной и выраженно тягучей текстуры кофейного пломбира.
+
+<!-- PAGE_BREAK -->
 
 ## ТЕХНИЧЕСКОЕ ПРИМЕЧАНИЕ (SDET)
 
